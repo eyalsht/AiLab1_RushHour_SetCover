@@ -1,0 +1,331 @@
+import argparse
+import sys
+import os
+import pandas as pd
+import numpy as np
+
+# Part A Imports
+from src.part_a.state import State, Vehicle
+from src.part_a.problem import RushHourProblem
+from src.part_a.search import BreadthFirstSearch, AStarSearch
+from src.part_a.generator import generate_puzzle
+
+# Part B Imports
+from src.part_b.problem import SetCoverProblem
+from src.part_b.greedy import GreedySetCover
+from src.part_b.ga_engine import GAEngine
+from src.utils.visualizer import Visualizer
+
+def parse_rush_hour_string(s: str) -> State:
+    grid = [list(s[i*6:(i+1)*6]) for i in range(6)]
+    vehicles_dict = {}
+    
+    for r in range(6):
+        for c in range(6):
+            char = grid[r][c]
+            if char != '.':
+                if char not in vehicles_dict:
+                    vehicles_dict[char] = []
+                vehicles_dict[char].append((r, c))
+                
+    vehicles = []
+    for v_id, coords in vehicles_dict.items():
+        coords.sort()
+        r, c = coords[0]
+        length = len(coords)
+        if length > 1:
+            if coords[1][0] == r:
+                is_horiz = True
+            else:
+                is_horiz = False
+        else:
+            is_horiz = True
+            
+        vehicles.append(Vehicle(v_id, is_horiz, length, r, c))
+        
+    return State(frozenset(vehicles))
+
+def parse_all_board_file(filepath: str) -> list:
+    puzzles = []
+    with open(filepath, 'r') as f:
+        in_input = False
+        for line in f:
+            line = line.strip()
+            if line == '--- RH-input ---':
+                in_input = True
+                continue
+            if line == '--- end RH-input ---':
+                break
+            if in_input and len(line) == 36:
+                puzzles.append(line)
+    return puzzles
+
+def parse_board_file(filepath: str, puzzle_index: int = 1) -> State:
+    if filepath.endswith('rh.txt'):
+        puzzles = parse_all_board_file(filepath)
+        if puzzle_index < 1 or puzzle_index > len(puzzles):
+            print(f"Error: puzzle_index must be between 1 and {len(puzzles)}")
+            sys.exit(1)
+        return parse_rush_hour_string(puzzles[puzzle_index - 1])
+    else:
+        # Fallback for manual TXT formats
+        vehicles = []
+        try:
+            with open(filepath, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        v_id = parts[0]
+                        is_horiz = (parts[1].lower() == 'h')
+                        length = int(parts[2])
+                        row = int(parts[3])
+                        col = int(parts[4])
+                        vehicles.append(Vehicle(v_id, is_horiz, length, row, col))
+            return State(frozenset(vehicles))
+        except FileNotFoundError:
+            print(f"Error: Board file not found at {filepath}")
+            sys.exit(1)
+
+def format_solution(path: list, initial_state: State) -> str:
+    formatted = []
+    for step in path:
+        v_id, offset = step
+        v = initial_state.get_vehicle(v_id)
+        if v.is_horizontal:
+            direction = 'R' if offset > 0 else 'L'
+        else:
+            direction = 'D' if offset > 0 else 'U'
+        formatted.append(f"{v_id}{direction}{abs(offset)}")
+    return " ".join(formatted)
+
+def run_batch(args):
+    puzzles = parse_all_board_file(args.board_file)
+    print(f"{'Problem':<8} | {'Heuristic':<10} | {'N':<6} | {'d/N':<8} | {'Time(ms)':<10} | {'Success':<8} | {'EBF':<6} | {'Havg':<6} | {'Min':<4} | {'Avg':<6} | {'Max':<4}")
+    print("-" * 105)
+    
+    success_count = 0
+    time_limit = args.time_limit if args.time_limit else None
+    
+    for i, puzzle_str in enumerate(puzzles):
+        state = parse_rush_hour_string(puzzle_str)
+        problem = RushHourProblem(state, heuristic_type=args.heuristic)
+        
+        if args.algorithm == 'bfs':
+            algo = BreadthFirstSearch()
+        else:
+            algo = AStarSearch()
+            
+        solution = algo.search(problem, time_limit_ms=time_limit)
+        m = algo.metrics.get_metrics_summary()
+        
+        success_str = "Y" if solution else "N"
+        if solution:
+            success_count += 1
+            
+        print(f"{i+1:<8} | {args.heuristic:<10} | {m['N']:<6} | {m['d/N']:<8} | {m['Time(ms)']:<10.2f} | {success_str:<8} | {m['EBF']:<6} | {m['Havg']:<6} | {m['Min Depth']:<4} | {m['Avg Depth']:<6} | {m['Max Depth']:<4}")
+        
+    print("-" * 105)
+    print(f"Total Successes: {success_count}/{len(puzzles)}")
+
+def run_part_a(args):
+    if args.generate_depth:
+        print(f"Generating puzzle with depth {args.generate_depth}...")
+        p = generate_puzzle(args.generate_depth)
+        if p:
+            print(f"Generated puzzle:\n{p}")
+        else:
+            print("Failed to generate puzzle.")
+        return
+
+    if args.batch:
+        run_batch(args)
+        return
+
+    print(f"Loading Rush Hour board from: {args.board_file} (Puzzle Index: {args.puzzle_index})")
+    initial_state = parse_board_file(args.board_file, args.puzzle_index)
+    problem = RushHourProblem(initial_state, heuristic_type=args.heuristic)
+
+    if args.algorithm == 'bfs':
+        print("Running Breadth-First Search...")
+        algo = BreadthFirstSearch()
+    elif args.algorithm == 'astar':
+        print("Running A* Search...")
+        algo = AStarSearch()
+    else:
+        print(f"Unknown algorithm: {args.algorithm}")
+        return
+
+    time_limit = args.time_limit if args.time_limit else None
+    solution = algo.search(problem, time_limit_ms=time_limit)
+    
+    metrics_summary = algo.metrics.get_metrics_summary()
+    print("\n--- Metrics ---")
+    for k, v in metrics_summary.items():
+        print(f"{k}: {v}")
+        
+    if solution:
+        path = solution.get_solution_path()
+        formatted_path = format_solution(path, initial_state)
+        print(f"\nSolution found! Path length: {len(path)}")
+        print(f"Path: {formatted_path}")
+    else:
+        print("\nFAILED - No solution found or timeout reached.")
+
+def run_batch_part_b(args):
+    datasets = ['scp41.txt', 'scp42.txt', 'scp43.txt', 'scp44.txt', 
+                'scp51.txt', 'scp52.txt', 'scp53.txt', 
+                'scpa1.txt', 'scpa2.txt', 'scpa3.txt']
+    seeds = [42, 123, 999, 2026, 7]
+    configs = {
+        'Crossover Only': {'mut_rate': 0.0, 'cx_rate': 0.8},
+        'Mutation Only': {'mut_rate': 0.05, 'cx_rate': 0.0},
+        'Both': {'mut_rate': 0.05, 'cx_rate': 0.8}
+    }
+    
+    results = []
+    
+    base_dir = os.path.dirname(args.dataset) if os.path.isdir(args.dataset) else os.path.dirname(args.dataset)
+    if not base_dir:
+        base_dir = 'data/setcover'
+        
+    print(f"Running Part B Batch Experiments on {len(datasets)} datasets...")
+    
+    for ds in datasets:
+        filepath = os.path.join(base_dir, ds)
+        if not os.path.exists(filepath):
+            print(f"Warning: Dataset {filepath} not found. Skipping.")
+            continue
+            
+        print(f"\nProcessing {ds}...")
+        problem = SetCoverProblem.from_file(filepath)
+        
+        # Baseline Greedy
+        greedy = GreedySetCover()
+        greedy_cost, _, greedy_time = greedy.solve(problem)
+        results.append({
+            'Dataset': ds, 'Config': 'Greedy', 'Seed': 'N/A',
+            'Valid': True, 'Cost': greedy_cost, 'Time(ms)': greedy_time, 'Generations': 0
+        })
+        
+        for config_name, params in configs.items():
+            for seed in seeds:
+                engine = GAEngine(
+                    problem=problem, seed=seed,
+                    pop_size=300, mutation_rate=params['mut_rate'],
+                    crossover_rate=params['cx_rate'], generations=200,
+                    selection_method='tournament'
+                )
+                best_chrom = engine.run()
+                algo_time = engine.history[-1]['elapsed_ms']
+                results.append({
+                    'Dataset': ds, 'Config': config_name, 'Seed': seed,
+                    'Valid': best_chrom.is_valid, 'Cost': best_chrom.cost, 
+                    'Time(ms)': algo_time, 'Generations': 200
+                })
+                
+    df = pd.DataFrame(results)
+    os.makedirs('results', exist_ok=True)
+    df.to_csv('results/part_b_batch_results.csv', index=False)
+    
+    # Aggregated
+    agg_df = df[df['Valid'] == True].groupby(['Dataset', 'Config']).agg({
+        'Cost': ['mean', 'min'],
+        'Time(ms)': 'mean'
+    }).reset_index()
+    
+    print("\n--- Aggregated Results ---")
+    print(agg_df.to_string())
+    agg_df.to_csv('results/part_b_batch_aggregated.csv')
+    print("\nBatch processing complete. Results saved to /results/part_b_batch_aggregated.csv")
+
+def run_part_b(args):
+    if getattr(args, 'experiment_batch', False):
+        run_batch_part_b(args)
+        return
+        
+    filepath = args.dataset
+    if not os.path.exists(filepath):
+        print(f"Dataset not found: {filepath}")
+        return
+        
+    print(f"Loading Set Cover Dataset: {filepath}")
+    problem = SetCoverProblem.from_file(filepath)
+    print(f"Loaded: m={problem.m} elements, n={problem.n} sets")
+
+    greedy = GreedySetCover()
+    greedy_cost, greedy_sets, greedy_time = greedy.solve(problem)
+    print(f"\n--- Greedy Baseline ---")
+    print(f"Cost: {greedy_cost}")
+    print(f"Time: {greedy_time:.2f} ms")
+    
+    if args.evaluate_only:
+        return
+        
+    print(f"\n--- Genetic Algorithm ---")
+    engine = GAEngine(
+        problem=problem, seed=args.seed,
+        pop_size=args.pop_size, mutation_rate=args.mut_rate,
+        crossover_rate=args.cx_rate, generations=args.generations,
+        selection_method='tournament'
+    )
+    
+    best_chrom = engine.run()
+    print(f"Best Configuration Found:")
+    print(f"Valid: {best_chrom.is_valid}")
+    print(f"Fitness (Cost+Penalty): {best_chrom.fitness}")
+    print(f"Actual Cost: {best_chrom.cost}")
+    print(f"Algorithm Time: {engine.history[-1]['elapsed_ms']:.2f} ms")
+    
+    if args.visualize:
+        print("\nGenerating Visualizations in /results/...")
+        Visualizer.plot_ga_convergence(engine.history, os.path.join("results", f"convergence-{os.path.basename(filepath)}.png"))
+        Visualizer.plot_ga_diversity(engine.history, os.path.join("results", f"diversity-entropy-{os.path.basename(filepath)}.png"), metric='entropy')
+        Visualizer.plot_ga_diversity(engine.history, os.path.join("results", f"diversity-stddev-{os.path.basename(filepath)}.png"), metric='std_dev')
+        Visualizer.plot_ga_diversity(engine.history, os.path.join("results", f"diversity-hamming-{os.path.basename(filepath)}.png"), metric='hamming_distance')
+        Visualizer.plot_selection_pressure(engine.history, os.path.join("results", f"selection-pressure-{os.path.basename(filepath)}.png"))
+        
+        matrix = np.array([c.genes for c in engine.population])
+        Visualizer.plot_dendrogram(matrix, os.path.join("results", f"dendrogram-{os.path.basename(filepath)}.png"))
+        print("Visualizations saved.")
+
+def main():
+    parser = argparse.ArgumentParser(description="AI Lab 1 - Search and Genetic Algorithms")
+    subparsers = parser.add_subparsers(dest='command', help='Select Part A or Part B')
+
+    # Part A Parser
+    part_a_parser = subparsers.add_parser('part_a', help='Rush Hour Solver')
+    part_a_parser.add_argument('--board_file', type=str, required=False, help='Path to board configuration file')
+    part_a_parser.add_argument('--puzzle_index', type=int, default=1, help='Which puzzle index to run if using rh.txt (1-40)')
+    part_a_parser.add_argument('--algorithm', type=str, choices=['bfs', 'astar'], default='astar', help='Algorithm to use')
+    part_a_parser.add_argument('--heuristic', type=str, choices=['h1', 'h2'], default='h1', help='Heuristic function to use')
+    part_a_parser.add_argument('--batch', action='store_true', help='Run all puzzles in the board file')
+    part_a_parser.add_argument('--time_limit', type=float, default=None, help='Max execution time in milliseconds')
+    part_a_parser.add_argument('--generate_depth', type=int, default=None, help='Generate a random puzzle with specified solution depth')
+    part_a_parser.add_argument('-v', '--verbose', action='store_true', help='Print step-by-step solution path')
+
+    # Part B Parser
+    part_b_parser = subparsers.add_parser('part_b', help='Set Cover GA solver')
+    part_b_parser.add_argument('--dataset', type=str, required=True, help='Path to scp*.txt dataset or directory (for batch)')
+    part_b_parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    part_b_parser.add_argument('--evaluate_only', action='store_true', help='Only run Baseline Greedy algorithm')
+    part_b_parser.add_argument('--visualize', action='store_true', help='Generate convergence and diversity graphs')
+    part_b_parser.add_argument('--experiment_batch', action='store_true', help='Run automated batch comparison for all configs and datasets')
+    part_b_parser.add_argument('--pop_size', type=int, default=300)
+    part_b_parser.add_argument('--mut_rate', type=float, default=0.05)
+    part_b_parser.add_argument('--cx_rate', type=float, default=0.8)
+    part_b_parser.add_argument('--generations', type=int, default=200)
+
+    args = parser.parse_args()
+
+    if args.command == 'part_a':
+        run_part_a(args)
+    elif args.command == 'part_b':
+        run_part_b(args)
+    else:
+        parser.print_help()
+
+if __name__ == '__main__':
+    main()

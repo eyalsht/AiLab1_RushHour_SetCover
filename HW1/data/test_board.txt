@@ -1,0 +1,6 @@
+# Target car 'X' at row 2 (index 2), col 1. Needs to move to col 4.
+X h 2 2 1
+# Car A blocking X at column 4
+A v 3 0 4
+# Car B below
+B h 2 3 0

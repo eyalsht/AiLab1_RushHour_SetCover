@@ -1,0 +1,25 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE and agent tools
+.agents/
+.claude/
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Results and logs
+results/
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+docs/
