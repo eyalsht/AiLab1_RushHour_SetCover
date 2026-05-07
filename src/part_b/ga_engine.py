@@ -9,14 +9,17 @@ class GAEngine:
     def __init__(self, problem: SetCoverProblem, seed: int = 42,
                  pop_size: int = 300, mutation_rate: float = 0.05,
                  crossover_rate: float = 0.8, generations: int = 200,
-                 selection_method: str = 'tournament'):
+                 selection_method: str = 'tournament',
+                 stagnation_limit: int = 30, entropy_threshold: float = 0.05):
         self.problem = problem
         self.pop_size = pop_size
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.generations = generations
         self.selection_method = selection_method
-        
+        self.stagnation_limit = stagnation_limit
+        self.entropy_threshold = entropy_threshold
+
         self.random = random.Random(seed)
         self.population: List[Chromosome] = []
         self.history: List[Dict[str, Any]] = []
@@ -74,16 +77,18 @@ class GAEngine:
         start_time = time.perf_counter()
         self.initialize_population()
         self.record_metrics(0, start_time)
-        
+
+        best_fitness = float('inf')
+        stagnation_counter = 0
+        stop_reason = f"max_generations ({self.generations})"
+
         for gen in range(1, self.generations + 1):
             new_population = []
             self.population.sort(key=lambda c: c.fitness)
-            
-            # Elitism: keep top 10%
-            esize = int(self.pop_size * 0.1)
-            if esize < 1: esize = 1
+
+            esize = max(1, int(self.pop_size * 0.1))
             new_population.extend([Chromosome(list(c.genes)) for c in self.population[:esize]])
-            
+
             while len(new_population) < self.pop_size:
                 p1 = self.select()
                 p2 = self.select()
@@ -91,15 +96,33 @@ class GAEngine:
                 self.mutate(c1)
                 self.mutate(c2)
                 new_population.extend([c1, c2])
-                
+
             new_population = new_population[:self.pop_size]
             for c in new_population:
                 c.evaluate(self.problem)
-                
+
             self.population = new_population
             self.record_metrics(gen, start_time)
-            
+
+            current_best = self.history[-1]['best_fitness']
+            current_entropy = self.history[-1]['entropy']
+
+            if current_best < best_fitness:
+                best_fitness = current_best
+                stagnation_counter = 0
+            else:
+                stagnation_counter += 1
+
+            if stagnation_counter >= self.stagnation_limit:
+                stop_reason = f"stagnation ({self.stagnation_limit} gens no improvement)"
+                break
+
+            if current_entropy < self.entropy_threshold:
+                stop_reason = f"entropy_convergence (entropy={current_entropy:.4f})"
+                break
+
         self.population.sort(key=lambda c: c.fitness)
+        self.history[-1]['stop_reason'] = stop_reason
         return self.population[0]
 
     def record_metrics(self, gen: int, start_time: float):
