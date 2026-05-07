@@ -105,30 +105,72 @@ def run_batch(args):
     puzzles = parse_all_board_file(args.board_file)
     print(f"{'Problem':<8} | {'Heuristic':<10} | {'N':<6} | {'d/N':<8} | {'Time(ms)':<10} | {'Success':<8} | {'EBF':<6} | {'Havg':<6} | {'Min':<4} | {'Avg':<6} | {'Max':<4}")
     print("-" * 105)
-    
+
     success_count = 0
     time_limit = args.time_limit if args.time_limit else None
-    
+
+    algo_tag = args.algorithm
+    solutions_file = os.path.join("results", f"solutions_{algo_tag}_{args.heuristic}.txt")
+    os.makedirs("results", exist_ok=True)
+
+    rows = []
+    solution_lines = []
+
     for i, puzzle_str in enumerate(puzzles):
         state = parse_rush_hour_string(puzzle_str)
         problem = RushHourProblem(state, heuristic_type=args.heuristic)
-        
+
         if args.algorithm == 'bfs':
             algo = BreadthFirstSearch()
         else:
             algo = AStarSearch()
-            
+
         solution = algo.search(problem, time_limit_ms=time_limit)
         m = algo.metrics.get_metrics_summary()
-        
+
         success_str = "Y" if solution else "N"
         if solution:
             success_count += 1
-            
+            path = solution.get_solution_path()
+            solution_lines.append(format_solution(path, state))
+        else:
+            solution_lines.append("FAILED")
+
+        rows.append({
+            'Problem': i + 1,
+            'Heuristic': args.heuristic,
+            'Algorithm': args.algorithm,
+            'N': m['N'],
+            'd/N': m['d/N'],
+            'Time(ms)': m['Time(ms)'],
+            'Success': success_str,
+            'EBF': m['EBF'],
+            'Havg': m['Havg'],
+            'Min Depth': m['Min Depth'],
+            'Avg Depth': m['Avg Depth'],
+            'Max Depth': m['Max Depth'],
+        })
+
         print(f"{i+1:<8} | {args.heuristic:<10} | {m['N']:<6} | {m['d/N']:<8} | {m['Time(ms)']:<10.2f} | {success_str:<8} | {m['EBF']:<6} | {m['Havg']:<6} | {m['Min Depth']:<4} | {m['Avg Depth']:<6} | {m['Max Depth']:<4}")
-        
+
     print("-" * 105)
     print(f"Total Successes: {success_count}/{len(puzzles)}")
+
+    with open(solutions_file, 'w') as f:
+        for line in solution_lines:
+            f.write(line + "\n")
+    print(f"Solutions written to: {solutions_file}")
+
+    df = pd.DataFrame(rows)
+    solved = df[df['Success'] == 'Y']
+    print(f"\n--- Statistics Summary ({args.heuristic}, {args.algorithm}) ---")
+    if not solved.empty:
+        for col in ['N', 'd/N', 'Time(ms)', 'EBF', 'Havg', 'Min Depth', 'Avg Depth', 'Max Depth']:
+            print(f"  Avg {col}: {solved[col].mean():.4f}")
+
+    csv_file = os.path.join("results", f"batch_results_{algo_tag}_{args.heuristic}.csv")
+    df.to_csv(csv_file, index=False)
+    print(f"Batch results saved to: {csv_file}")
 
 def run_comparison(args):
     """Run BFS and A* on all puzzles and print a side-by-side comparison."""
