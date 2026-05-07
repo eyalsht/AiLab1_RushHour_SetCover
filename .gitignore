@@ -22,4 +22,6 @@ results/
 .DS_Store
 Thumbs.db
 
-docs/
+MISSING.md.pdf
+.gitignore
+MISSING.md
