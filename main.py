@@ -60,6 +60,22 @@ def parse_all_board_file(filepath: str) -> list:
                 puzzles.append(line)
     return puzzles
 
+def parse_given_solutions(filepath: str) -> list:
+    """Parse the Soln: lines from rh.txt after --- end RH-input ---."""
+    solutions = []
+    in_solutions = False
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line == '--- end RH-input ---':
+                in_solutions = True
+                continue
+            if in_solutions and line.startswith('Soln:'):
+                soln_str = line[len('Soln:'):].strip().rstrip('.')
+                tokens = [t for t in soln_str.split() if t != '.']
+                solutions.append(len(tokens))
+    return solutions
+
 def parse_board_file(filepath: str, puzzle_index: int = 1) -> State:
     if filepath.endswith('rh.txt'):
         puzzles = parse_all_board_file(filepath)
@@ -217,6 +233,36 @@ def run_comparison(args):
     astar_solved = df[df['AStar_ok'] == 1]
     print(f"BFS  solved: {df['BFS_ok'].sum()}/40   avg N={bfs_solved['BFS_N'].mean():.0f}   avg ms={bfs_solved['BFS_ms'].mean():.1f}")
     print(f"A*   solved: {df['AStar_ok'].sum()}/40  avg N={astar_solved['AStar_N'].mean():.0f}  avg ms={astar_solved['AStar_ms'].mean():.1f}")
+
+    # Category labels
+    def category(n):
+        if n <= 10: return 'Beginner'
+        elif n <= 20: return 'Intermediate'
+        elif n <= 30: return 'Advanced'
+        return 'Expert'
+    df['Category'] = df['Problem'].apply(category)
+
+    # Given solution lengths from rh.txt
+    given = parse_given_solutions(args.board_file)
+    df['Given_sol_len'] = given if len(given) == len(df) else -1
+
+    print("\n--- Category Breakdown (A*) ---")
+    cat_df = df[df['AStar_ok'] == 1].groupby('Category').agg(
+        Solved=('AStar_ok', 'sum'),
+        Avg_N=('AStar_N', 'mean'),
+        Avg_ms=('AStar_ms', 'mean'),
+        Avg_sol_len=('AStar_sol_len', 'mean'),
+    )
+    print(cat_df.to_string())
+
+    print("\n--- Solution Length: Ours (A*) vs Given ---")
+    comp = df[df['AStar_ok'] == 1][['Problem', 'Category', 'AStar_sol_len', 'Given_sol_len']].copy()
+    comp['diff'] = comp['AStar_sol_len'] - comp['Given_sol_len']
+    print(comp.to_string(index=False))
+    shorter = (comp['diff'] < 0).sum()
+    equal = (comp['diff'] == 0).sum()
+    longer = (comp['diff'] > 0).sum()
+    print(f"\nOurs shorter: {shorter}  Equal: {equal}  Longer: {longer}")
 
     os.makedirs("results", exist_ok=True)
     df.to_csv("results/bfs_vs_astar.csv", index=False)
