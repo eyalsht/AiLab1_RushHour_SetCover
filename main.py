@@ -228,9 +228,15 @@ def run_part_a(args):
     else:
         print("\nFAILED - No solution found or timeout reached.")
 
+OPTIMAL_VALUES = {
+    'scp41.txt': 429, 'scp42.txt': 512, 'scp43.txt': 516, 'scp44.txt': 494,
+    'scp51.txt': 253, 'scp52.txt': 302, 'scp53.txt': 226,
+    'scpa1.txt': 253, 'scpa2.txt': 252, 'scpa3.txt': 232,
+}
+
 def run_batch_part_b(args):
-    datasets = ['scp41.txt', 'scp42.txt', 'scp43.txt', 'scp44.txt', 
-                'scp51.txt', 'scp52.txt', 'scp53.txt', 
+    datasets = ['scp41.txt', 'scp42.txt', 'scp43.txt', 'scp44.txt',
+                'scp51.txt', 'scp52.txt', 'scp53.txt',
                 'scpa1.txt', 'scpa2.txt', 'scpa3.txt']
     seeds = [42, 123, 999, 2026, 7]
     configs = {
@@ -238,32 +244,31 @@ def run_batch_part_b(args):
         'Mutation Only': {'mut_rate': 0.05, 'cx_rate': 0.0},
         'Both': {'mut_rate': 0.05, 'cx_rate': 0.8}
     }
-    
+
     results = []
-    
-    base_dir = os.path.dirname(args.dataset) if os.path.isdir(args.dataset) else os.path.dirname(args.dataset)
-    if not base_dir:
-        base_dir = 'data/setcover'
-        
+    base_dir = 'data/setcover'
+
     print(f"Running Part B Batch Experiments on {len(datasets)} datasets...")
-    
+
     for ds in datasets:
         filepath = os.path.join(base_dir, ds)
         if not os.path.exists(filepath):
             print(f"Warning: Dataset {filepath} not found. Skipping.")
             continue
-            
+
         print(f"\nProcessing {ds}...")
         problem = SetCoverProblem.from_file(filepath)
-        
-        # Baseline Greedy
+        optimal = OPTIMAL_VALUES.get(ds)
+
         greedy = GreedySetCover()
         greedy_cost, _, greedy_time = greedy.solve(problem)
+        greedy_gap = round((greedy_cost - optimal) / optimal * 100, 2) if optimal else None
         results.append({
             'Dataset': ds, 'Config': 'Greedy', 'Seed': 'N/A',
-            'Valid': True, 'Cost': greedy_cost, 'Time(ms)': greedy_time, 'Generations': 0
+            'Valid': True, 'Cost': greedy_cost, 'Time(ms)': greedy_time,
+            'Generations': 0, 'Optimal': optimal, 'Gap(%)': greedy_gap
         })
-        
+
         for config_name, params in configs.items():
             for seed in seeds:
                 engine = GAEngine(
@@ -274,26 +279,42 @@ def run_batch_part_b(args):
                 )
                 best_chrom = engine.run()
                 algo_time = engine.history[-1]['elapsed_ms']
+                actual_gens = engine.history[-1]['generation']
+                cost = best_chrom.cost
+                gap = round((cost - optimal) / optimal * 100, 2) if optimal and best_chrom.is_valid else None
                 results.append({
                     'Dataset': ds, 'Config': config_name, 'Seed': seed,
-                    'Valid': best_chrom.is_valid, 'Cost': best_chrom.cost, 
-                    'Time(ms)': algo_time, 'Generations': 200
+                    'Valid': best_chrom.is_valid, 'Cost': cost,
+                    'Time(ms)': algo_time, 'Generations': actual_gens,
+                    'Optimal': optimal, 'Gap(%)': gap
                 })
-                
+
     df = pd.DataFrame(results)
     os.makedirs('results', exist_ok=True)
     df.to_csv('results/part_b_batch_results.csv', index=False)
-    
-    # Aggregated
-    agg_df = df[df['Valid'] == True].groupby(['Dataset', 'Config']).agg({
-        'Cost': ['mean', 'min'],
-        'Time(ms)': 'mean'
-    }).reset_index()
-    
+
+    agg_df = df[df['Valid'] == True].groupby(['Dataset', 'Config']).agg(
+        Cost_mean=('Cost', 'mean'),
+        Cost_min=('Cost', 'min'),
+        Cost_std=('Cost', 'std'),
+        Time_mean=('Time(ms)', 'mean'),
+        Gap_mean=('Gap(%)', 'mean'),
+        Gens_mean=('Generations', 'mean'),
+    ).reset_index()
+
     print("\n--- Aggregated Results ---")
     print(agg_df.to_string())
-    agg_df.to_csv('results/part_b_batch_aggregated.csv')
-    print("\nBatch processing complete. Results saved to /results/part_b_batch_aggregated.csv")
+    agg_df.to_csv('results/part_b_batch_aggregated.csv', index=False)
+
+    for ds in df['Dataset'].unique():
+        ds_df = df[(df['Dataset'] == ds) & (df['Config'] != 'Greedy') & (df['Valid'] == True)]
+        if ds_df.empty:
+            continue
+        config_dfs = {cfg: ds_df[ds_df['Config'] == cfg] for cfg in configs}
+        save_path = os.path.join('results', f'param_sensitivity_{ds}.png')
+        Visualizer.plot_parameter_sensitivity(config_dfs, save_path)
+
+    print("\nBatch processing complete. Results saved to results/")
 
 def run_part_b(args):
     if getattr(args, 'experiment_batch', False):
