@@ -130,7 +130,61 @@ def run_batch(args):
     print("-" * 105)
     print(f"Total Successes: {success_count}/{len(puzzles)}")
 
+def run_comparison(args):
+    """Run BFS and A* on all puzzles and print a side-by-side comparison."""
+    puzzles = parse_all_board_file(args.board_file)
+    time_limit = args.time_limit if args.time_limit else 5000.0
+    heuristic = args.heuristic
+
+    print(f"\n=== BFS vs A* Comparison (time_limit={time_limit}ms, A* heuristic={heuristic}) ===\n")
+    print(f"{'#':<4} | {'BFS_N':<8} | {'BFS_d':<6} | {'BFS_ms':<8} | {'BFS_ok':<6} | "
+          f"{'AStar_N':<8} | {'AStar_d':<6} | {'AStar_ms':<8} | {'AStar_ok':<6} | "
+          f"{'BFS_len':<8} | {'AStar_len':<10}")
+    print("-" * 110)
+
+    rows = []
+    for i, puzzle_str in enumerate(puzzles):
+        state = parse_rush_hour_string(puzzle_str)
+
+        bfs = BreadthFirstSearch()
+        bfs_sol = bfs.search(RushHourProblem(state, heuristic_type='h1'), time_limit_ms=time_limit)
+        bm = bfs.metrics.get_metrics_summary()
+
+        astar = AStarSearch()
+        astar_sol = astar.search(RushHourProblem(state, heuristic_type=heuristic), time_limit_ms=time_limit)
+        am = astar.metrics.get_metrics_summary()
+
+        bfs_len = len(bfs_sol.get_solution_path()) if bfs_sol else -1
+        astar_len = len(astar_sol.get_solution_path()) if astar_sol else -1
+
+        print(f"{i+1:<4} | {bm['N']:<8} | {bm['d/N']:<6} | {bm['Time(ms)']:<8.1f} | {'Y' if bfs_sol else 'N':<6} | "
+              f"{am['N']:<8} | {am['d/N']:<6} | {am['Time(ms)']:<8.1f} | {'Y' if astar_sol else 'N':<6} | "
+              f"{bfs_len:<8} | {astar_len:<10}")
+
+        rows.append({
+            'Problem': i + 1,
+            'BFS_N': bm['N'], 'BFS_dN': bm['d/N'], 'BFS_ms': bm['Time(ms)'],
+            'BFS_ok': 1 if bfs_sol else 0, 'BFS_sol_len': bfs_len,
+            'AStar_N': am['N'], 'AStar_dN': am['d/N'], 'AStar_ms': am['Time(ms)'],
+            'AStar_ok': 1 if astar_sol else 0, 'AStar_sol_len': astar_len,
+        })
+
+    df = pd.DataFrame(rows)
+    print("\n--- Summary ---")
+    bfs_solved = df[df['BFS_ok'] == 1]
+    astar_solved = df[df['AStar_ok'] == 1]
+    print(f"BFS  solved: {df['BFS_ok'].sum()}/40   avg N={bfs_solved['BFS_N'].mean():.0f}   avg ms={bfs_solved['BFS_ms'].mean():.1f}")
+    print(f"A*   solved: {df['AStar_ok'].sum()}/40  avg N={astar_solved['AStar_N'].mean():.0f}  avg ms={astar_solved['AStar_ms'].mean():.1f}")
+
+    os.makedirs("results", exist_ok=True)
+    df.to_csv("results/bfs_vs_astar.csv", index=False)
+    print("Saved to results/bfs_vs_astar.csv")
+
 def run_part_a(args):
+    if args.compare:
+        run_comparison(args)
+        return
+
     if args.generate_depth:
         print(f"Generating puzzle with depth {args.generate_depth}...")
         p = generate_puzzle(args.generate_depth)
@@ -302,6 +356,7 @@ def main():
     part_a_parser.add_argument('--algorithm', type=str, choices=['bfs', 'astar'], default='astar', help='Algorithm to use')
     part_a_parser.add_argument('--heuristic', type=str, choices=['h1', 'h2'], default='h1', help='Heuristic function to use')
     part_a_parser.add_argument('--batch', action='store_true', help='Run all puzzles in the board file')
+    part_a_parser.add_argument('--compare', action='store_true', help='Compare BFS vs A* on all puzzles')
     part_a_parser.add_argument('--time_limit', type=float, default=None, help='Max execution time in milliseconds')
     part_a_parser.add_argument('--generate_depth', type=int, default=None, help='Generate a random puzzle with specified solution depth')
     part_a_parser.add_argument('-v', '--verbose', action='store_true', help='Print step-by-step solution path')
