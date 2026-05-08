@@ -335,7 +335,7 @@ def run_batch_part_b(args):
     datasets = ['scp41.txt', 'scp42.txt', 'scp43.txt', 'scp44.txt',
                 'scp51.txt', 'scp52.txt', 'scp53.txt',
                 'scpa1.txt', 'scpa2.txt', 'scpa3.txt']
-    seeds = [42, 123, 999, 2026, 7]
+    seeds = [42, 123, 999, 20267]
     configs = {
         'Crossover Only': {'mut_rate': 0.0, 'cx_rate': 0.8},
         'Mutation Only': {'mut_rate': 0.05, 'cx_rate': 0.0},
@@ -403,13 +403,26 @@ def run_batch_part_b(args):
     print(agg_df.to_string())
     agg_df.to_csv('results/part_b_batch_aggregated.csv', index=False)
 
+    import matplotlib.pyplot as plt
     for ds in df['Dataset'].unique():
         ds_df = df[(df['Dataset'] == ds) & (df['Config'] != 'Greedy') & (df['Valid'] == True)]
         if ds_df.empty:
             continue
-        config_dfs = {cfg: ds_df[ds_df['Config'] == cfg] for cfg in configs}
+        fig, ax = plt.subplots(figsize=(8, 5))
+        config_names = list(configs.keys())
+        costs = [ds_df[ds_df['Config'] == c]['Cost'].mean() for c in config_names]
+        ax.bar(config_names, costs, color=['steelblue', 'orange', 'green'])
+        optimal = df[df['Dataset'] == ds]['Optimal'].iloc[0]
+        if optimal:
+            ax.axhline(optimal, color='red', linestyle='--', label=f'Optimal ({optimal})')
+            ax.legend()
+        ax.set_title(f'Avg Cost by Config — {ds}')
+        ax.set_ylabel('Average Cost (5 seeds)')
+        ax.set_xlabel('Configuration')
+        plt.tight_layout()
         save_path = os.path.join('results', f'param_sensitivity_{ds}.png')
-        Visualizer.plot_parameter_sensitivity(config_dfs, save_path)
+        plt.savefig(save_path)
+        plt.close()
 
     print("\nBatch processing complete. Results saved to results/")
 
