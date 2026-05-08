@@ -313,6 +313,15 @@ def run_part_a(args):
         formatted_path = format_solution(path, initial_state)
         print(f"\nSolution found! Path length: {len(path)}")
         print(f"Path: {formatted_path}")
+        if args.verbose:
+            print("\n--- Step-by-Step Solution ---")
+            current = initial_state
+            for step_num, action in enumerate(path, 1):
+                v_id, offset = action
+                v = current.get_vehicle(v_id)
+                direction = ('R' if offset > 0 else 'L') if v.is_horizontal else ('D' if offset > 0 else 'U')
+                print(f"  Step {step_num}: Move {v_id} {direction}{abs(offset)}")
+                current = problem.get_result(current, action)
     else:
         print("\nFAILED - No solution found or timeout reached.")
 
