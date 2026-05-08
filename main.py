@@ -17,6 +17,18 @@ from src.part_b.ga_engine import GAEngine
 from src.utils.visualizer import Visualizer
 
 def parse_rush_hour_string(s: str) -> State:
+    """Parse a Rush Hour puzzle string into a :class:`State`.
+
+    The input string must be exactly 36 characters long, representing a
+    6×6 board read row‑wise. ``'.'`` denotes an empty cell, while any other
+    character denotes a vehicle identifier.
+
+    Args:
+        s (str): 36‑character board description.
+
+    Returns:
+        State: A state containing all :class:`Vehicle` objects inferred from the board.
+    """
     grid = [list(s[i*6:(i+1)*6]) for i in range(6)]
     vehicles_dict = {}
     
@@ -46,6 +58,18 @@ def parse_rush_hour_string(s: str) -> State:
     return State(frozenset(vehicles))
 
 def parse_all_board_file(filepath: str) -> list:
+    """Read all Rush Hour puzzles from a ``rh.txt`` file.
+
+    The file is expected to contain a ``--- RH-input ---`` marker followed
+    by 36‑character puzzle lines and a terminating ``--- end RH-input ---``
+    marker. All puzzle strings are returned in a list preserving order.
+
+    Args:
+        filepath (str): Path to the ``rh.txt`` file.
+
+    Returns:
+        list[str]: List of puzzle strings.
+    """
     puzzles = []
     with open(filepath, 'r') as f:
         in_input = False
@@ -61,6 +85,18 @@ def parse_all_board_file(filepath: str) -> list:
     return puzzles
 
 def parse_given_solutions(filepath: str) -> list:
+    """Parse the provided solution lengths from a ``rh.txt`` file.
+
+    After the ``--- end RH-input ---`` marker the file may contain lines
+    starting with ``Soln:`` followed by a textual description of the solution.
+    The function extracts the number of moves for each solution.
+
+    Args:
+        filepath (str): Path to the ``rh.txt`` file.
+
+    Returns:
+        list[int]: List of solution lengths (number of moves).
+    """
     """Parse the Soln: lines from rh.txt after --- end RH-input ---."""
     solutions = []
     in_solutions = False
@@ -77,6 +113,20 @@ def parse_given_solutions(filepath: str) -> list:
     return solutions
 
 def parse_board_file(filepath: str, puzzle_index: int = 1) -> State:
+    """Load a board description and return a :class:`State`.
+
+    If the file ends with ``rh.txt`` the function extracts the requested
+    puzzle (1‑based index) from the list of puzzles. For other file formats it
+    falls back to a simple line‑based vehicle specification.
+
+    Args:
+        filepath (str): Path to the board file.
+        puzzle_index (int, optional): Index of the puzzle to load when using
+            ``rh.txt``. Defaults to ``1``.
+
+    Returns:
+        State: The initial state for the problem.
+    """
     if filepath.endswith('rh.txt'):
         puzzles = parse_all_board_file(filepath)
         if puzzle_index < 1 or puzzle_index > len(puzzles):
@@ -106,6 +156,18 @@ def parse_board_file(filepath: str, puzzle_index: int = 1) -> State:
             sys.exit(1)
 
 def format_solution(path: list, initial_state: State) -> str:
+    """Convert a solution path to the assignment's textual format.
+
+    Each step is rendered as ``<vehicle_id><direction><offset>`` where
+    ``direction`` is ``R``, ``L``, ``U`` or ``D`` depending on vehicle orientation.
+
+    Args:
+        path (list): List of ``(vehicle_id, offset)`` tuples.
+        initial_state (State): The starting state to resolve vehicle orientation.
+
+    Returns:
+        str: Space‑separated string describing the solution.
+    """
     formatted = []
     for step in path:
         v_id, offset = step
@@ -118,6 +180,15 @@ def format_solution(path: list, initial_state: State) -> str:
     return " ".join(formatted)
 
 def run_batch(args):
+    """Execute a batch of Rush Hour puzzles defined in a board file.
+
+    The function parses all puzzles from ``args.board_file`` and runs the
+    selected algorithm (BFS or A*) with the chosen heuristic, printing a table
+    of metrics and writing solutions to ``results/``.
+
+    Args:
+        args (argparse.Namespace): Parsed command‑line arguments.
+    """
     puzzles = parse_all_board_file(args.board_file)
     print(f"{'Problem':<8} | {'Heuristic':<10} | {'N':<6} | {'d/N':<8} | {'Time(ms)':<10} | {'Success':<8} | {'EBF':<6} | {'Havg':<6} | {'Min':<4} | {'Avg':<6} | {'Max':<4}")
     print("-" * 105)
@@ -189,6 +260,13 @@ def run_batch(args):
     print(f"Batch results saved to: {csv_file}")
 
 def run_comparison(args):
+    """Compare BFS and A* across all puzzles in a board file.
+
+    Prints side‑by‑side metrics and aggregates statistics for each heuristic.
+
+    Args:
+        args (argparse.Namespace): Parsed command‑line arguments.
+    """
     """Run BFS and A* on all puzzles and print a side-by-side comparison."""
     puzzles = parse_all_board_file(args.board_file)
     time_limit = args.time_limit if args.time_limit else 5000.0
@@ -269,6 +347,14 @@ def run_comparison(args):
     print("Saved to results/bfs_vs_astar.csv")
 
 def run_part_a(args):
+    """Entry point for the Rush Hour (Part A) workflows.
+
+    Handles puzzle generation, batch execution, comparison, or solving a
+    single puzzle based on the provided arguments.
+
+    Args:
+        args (argparse.Namespace): Parsed command‑line arguments.
+    """
     if args.compare:
         run_comparison(args)
         return
@@ -332,9 +418,30 @@ OPTIMAL_VALUES = {
 }
 
 def run_batch_part_b(args):
-    datasets = ['scp41.txt', 'scp42.txt', 'scp43.txt', 'scp44.txt',
-                'scp51.txt', 'scp52.txt', 'scp53.txt',
-                'scpa1.txt', 'scpa2.txt', 'scpa3.txt']
+    """Run automated batch experiments for Part B using a dynamic dataset argument.
+
+    ``args.dataset`` may point to a single ``scp*.txt`` file or a directory
+    containing multiple dataset files. The function discovers all ``.txt``
+    files in the provided location, then executes the greedy baseline and the
+    three GA configurations (Crossover Only, Mutation Only, Both) for each
+    dataset across a set of seeds. Results are aggregated and visualised.
+    """
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    # Resolve dataset list
+    dataset_path = args.dataset
+    if not os.path.exists(dataset_path):
+        print(f"Dataset path not found: {dataset_path}")
+        return
+    if os.path.isdir(dataset_path):
+        base_dir = dataset_path
+        datasets = [f for f in os.listdir(base_dir) if f.endswith('.txt')]
+    else:
+        base_dir = os.path.dirname(dataset_path)
+        datasets = [os.path.basename(dataset_path)]
+
     seeds = [42, 123, 999, 20267]
     configs = {
         'Crossover Only': {'mut_rate': 0.0, 'cx_rate': 0.8},
@@ -343,8 +450,6 @@ def run_batch_part_b(args):
     }
 
     results = []
-    base_dir = 'data/setcover'
-
     print(f"Running Part B Batch Experiments on {len(datasets)} datasets...")
 
     for ds in datasets:
@@ -352,11 +457,11 @@ def run_batch_part_b(args):
         if not os.path.exists(filepath):
             print(f"Warning: Dataset {filepath} not found. Skipping.")
             continue
-
         print(f"\nProcessing {ds}...")
         problem = SetCoverProblem.from_file(filepath)
         optimal = OPTIMAL_VALUES.get(ds)
 
+        # Greedy baseline
         greedy = GreedySetCover()
         greedy_cost, _, greedy_time = greedy.solve(problem)
         greedy_gap = round((greedy_cost - optimal) / optimal * 100, 2) if optimal else None
@@ -403,7 +508,7 @@ def run_batch_part_b(args):
     print(agg_df.to_string())
     agg_df.to_csv('results/part_b_batch_aggregated.csv', index=False)
 
-    import matplotlib.pyplot as plt
+    # Plotting per‑dataset cost bars
     for ds in df['Dataset'].unique():
         ds_df = df[(df['Dataset'] == ds) & (df['Config'] != 'Greedy') & (df['Valid'] == True)]
         if ds_df.empty:
@@ -427,6 +532,14 @@ def run_batch_part_b(args):
     print("\nBatch processing complete. Results saved to results/")
 
 def run_part_b(args):
+    """Entry point for the Set Cover (Part B) workflows.
+
+    Handles single‑dataset execution, baseline greedy evaluation, or full
+    GA optimisation based on the provided command‑line flags.
+
+    Args:
+        args (argparse.Namespace): Parsed command‑line arguments.
+    """
     if getattr(args, 'experiment_batch', False):
         run_batch_part_b(args)
         return
@@ -477,6 +590,11 @@ def run_part_b(args):
         print("Visualizations saved.")
 
 def main():
+    """Parse CLI arguments and dispatch to Part A or Part B.
+
+    The CLI mirrors the assignment specification and provides help messages
+    for each sub‑command.
+    """
     parser = argparse.ArgumentParser(description="AI Lab 1 - Search and Genetic Algorithms")
     subparsers = parser.add_subparsers(dest='command', help='Select Part A or Part B')
 
